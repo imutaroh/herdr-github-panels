@@ -1,7 +1,7 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
 import { spaces, panes, focused, exec, layout, theme } from "herdr";
-import { QUERY, parse, dateSpec, gantt, months, day, isoOf } from "./model.js";
+import { QUERY, DATED_QUERY, parse, parseItems, datedFilter, dateSpec, gantt, months, day, isoOf } from "./model.js";
 
 // A side panel beside Files, Changes and Issues: the GitHub Projects linked to the
 // focused terminal's repository, as a table or a Roadmap-style chart. Read only.
@@ -62,7 +62,15 @@ export default class Projects extends View {
         this.on = on;
         const [owner, name] = this.repo.split("/");
         const r = await exec("gh", ["api", "graphql", "-f", `query=${QUERY}`, "-f", `owner=${owner}`, "-f", `name=${name}`], { on });
-        this.data[this.repo] = parse(r.stdout || "{}");
+        const parsed = parse(r.stdout || "{}");
+        // The chart wants the items that have dates, which may be anywhere in a big Project.
+        for (const p of parsed.projects ?? []) {
+          const q = datedFilter(dateSpec(p.fields));
+          if (!q || p.total <= p.items.length) continue;
+          const d = await exec("gh", ["api", "graphql", "-f", `query=${DATED_QUERY}`, "-f", `id=${p.id}`, "-f", `q=${q}`], { on });
+          p.dated = parseItems(d.stdout || "{}");
+        }
+        this.data[this.repo] = parsed;
         if (!r.stdout && r.stderr) this.data[this.repo] = { error: r.stderr.trim() };
       } catch (e) { if (this.repo) this.data[this.repo] = { error: String(e?.message ?? e) }; }
       finally { this.busy = false; cx.notify(); }
@@ -110,7 +118,9 @@ export default class Projects extends View {
   chart(p, t) {
     const spec = dateSpec(p.fields);
     if (!spec) return this.note(t, "No date fields", "Add a Date or Iteration field to this Project and it shows here as a Roadmap.", "Switch to Table to see the items.");
-    const g = gantt(p.items, spec, today());
+    const g = gantt(p.dated?.items ?? p.items, spec, today());
+    const undated = p.dated ? p.total - p.dated.total : g.unscheduled.length;
+    const more = p.dated && p.dated.total > p.dated.items.length ? ` ・ first ${p.dated.items.length} of ${p.dated.total} dated` : "";
     if (!g.rows.length) return this.note(t, "Nothing is scheduled", `No item has a value in ${spec.label} yet.`);
     const px = PX[this.zoom], width = (g.max - g.min + 1) * px, now = today();
     const bar = (r, i) => {
@@ -126,7 +136,7 @@ export default class Projects extends View {
       .children(g.rows.map(bar))
       .child(div().absolute().left((now - g.min) * px).top(0).w(1).h(height).bg(t.ansi1));
     return v_flex().flex_1().min_h(0).overflow_y_scrollbar().p(6).gap(6)
-      .child(div().text_size(11).text_color(t.dim).child(`${spec.label} ・ today ${isoOf(now)}${g.unscheduled.length ? ` ・ ${g.unscheduled.length} without dates` : ""}`))
+      .child(div().text_size(11).text_color(t.dim).child(`${spec.label} ・ today ${isoOf(now)}${undated ? ` ・ ${undated} without dates` : ""}${more}`))
       .child(div().id("gantt-scroll").overflow_x_scrollbar().w_full().child(chart));
   }
 
@@ -152,7 +162,7 @@ export default class Projects extends View {
         .child(this.chip("mode-table", "Table", this.mode === "table", t, (_e, cx) => { this.mode = "table"; localStorage.setItem("mode", JSON.stringify({ mode: "table" })); cx.notify(); }))
         .when(this.mode === "gantt", (r) => r.child(this.chip("zoom-out", "−", false, t, (_e, cx) => { this.zoom = Math.max(0, this.zoom - 1); cx.notify(); }))
           .child(this.chip("zoom-in", "+", false, t, (_e, cx) => { this.zoom = Math.min(PX.length - 1, this.zoom + 1); cx.notify(); })))))
-      .when(Boolean(p) && p.total > p.items.length, (e) => e.child(div().flex_none().px(14).py(4).text_size(11).text_color(t.dim).child(`Showing the first ${p.items.length} of ${p.total} items`)))
+      .when(Boolean(p) && this.mode === "table" && p.total > p.items.length, (e) => e.child(div().flex_none().px(14).py(4).text_size(11).text_color(t.dim).child(`Showing the first ${p.items.length} of ${p.total} items`)))
       .child(body);
   }
 }
