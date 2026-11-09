@@ -1,6 +1,32 @@
 // GitHub Projects (v2) data: the query, and the pure functions that turn it into rows and bars.
 // No Herdr imports here, so it can be tested with plain node.
 
+// What one Project item needs: its issue, pull request or draft, and its field values.
+const ITEM = `
+  content {
+    __typename
+    ... on Issue { number title url state }
+    ... on PullRequest { number title url state }
+    ... on DraftIssue { title }
+  }
+  fieldValues(first: 30) {
+    nodes {
+      __typename
+      ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2FieldCommon { name } } }
+      ... on ProjectV2ItemFieldIterationValue { title startDate duration field { ... on ProjectV2FieldCommon { name } } }
+      ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } }
+      ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2FieldCommon { name } } }
+      ... on ProjectV2ItemFieldNumberValue { number field { ... on ProjectV2FieldCommon { name } } }
+    }
+  }`;
+
+// Only the items that have a value in a field ("has:\"Start date\""), for the chart:
+// a big Project has thousands of items and the first 100 may hold none with dates.
+export const DATED_QUERY = `
+query($id: ID!, $q: String!) {
+  node(id: $id) { ... on ProjectV2 { items(first: 100, query: $q) { totalCount nodes { ${ITEM} } } } }
+}`;
+
 export const QUERY = `
 query($owner: String!, $name: String!) {
   repository(owner: $owner, name: $name) {
@@ -11,24 +37,7 @@ query($owner: String!, $name: String!) {
         fields(first: 50) { nodes { __typename ... on ProjectV2FieldCommon { name dataType } } }
         items(first: 100) {
           totalCount
-          nodes {
-            content {
-              __typename
-              ... on Issue { number title url state }
-              ... on PullRequest { number title url state }
-              ... on DraftIssue { title }
-            }
-            fieldValues(first: 30) {
-              nodes {
-                __typename
-                ... on ProjectV2ItemFieldDateValue { date field { ... on ProjectV2FieldCommon { name } } }
-                ... on ProjectV2ItemFieldIterationValue { title startDate duration field { ... on ProjectV2FieldCommon { name } } }
-                ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } }
-                ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2FieldCommon { name } } }
-                ... on ProjectV2ItemFieldNumberValue { number field { ... on ProjectV2FieldCommon { name } } }
-              }
-            }
-          }
+          nodes { ${ITEM} }
         }
       }
     }
@@ -46,9 +55,23 @@ export function parse(stdout) {
   return { projects: nodes.filter((p) => !p.closed).map(project) };
 }
 
+// The answer of DATED_QUERY: { items, total } or null.
+export function parseItems(stdout) {
+  try {
+    const it = JSON.parse(stdout).data?.node?.items;
+    return it ? { items: it.nodes.map(item), total: it.totalCount } : null;
+  } catch { return null; }
+}
+
+// The filter that keeps only items with a date, or null when there is no date field.
+export function datedFilter(spec) {
+  const name = spec?.kind === "iteration" ? spec.field : spec?.start;
+  return name ? `has:"${name.replace(/"/g, "")}"` : null;
+}
+
 function project(p) {
   return {
-    number: p.number, title: p.title, url: p.url,
+    id: p.id, number: p.number, title: p.title, url: p.url,
     views: p.views.nodes,
     fields: p.fields.nodes.filter((f) => f.name),
     total: p.items.totalCount,
