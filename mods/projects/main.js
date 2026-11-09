@@ -1,13 +1,11 @@
 import { View, div } from "gpui-kit";
 import { v_flex, h_flex } from "gpui-base";
-import { spaces, panes, focused, exec, layout, theme, appHome } from "herdr";
-import * as fs from "fs/promises";
+import { spaces, panes, focused, exec, layout, theme } from "herdr";
 import { QUERY, parse, dateSpec, gantt, months, day, isoOf } from "./model.js";
 
 // A side panel beside Files, Changes and Issues: the GitHub Projects linked to the
 // focused terminal's repository, as a table or a Roadmap-style chart. Read only.
 
-const ICON = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="9" height="4" rx="1"/><rect x="8" y="10" width="13" height="4" rx="1"/><rect x="5" y="15" width="10" height="4" rx="1"/></svg>`;
 const REFRESH = 60000;
 const ROW = 26, PX = [3, 5, 8, 14], AXIS = 24;
 
@@ -33,19 +31,13 @@ function hidden() {
 }
 
 function remembered(key) { try { return JSON.parse(localStorage.getItem(key) ?? "{}"); } catch { return {}; } }
-const today = () => day(new Date().toISOString());
+// The local calendar day, so the line is right after midnight in any time zone.
+const today = () => { const n = new Date(); return day(`${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, "0")}-${String(n.getDate()).padStart(2, "0")}`); };
 
 export default class Projects extends View {
   init(_props, cx) {
     this.repos = remembered("repos"); this.chosen = remembered("chosen"); this.mode = remembered("mode").mode ?? "gantt";
-    this.zoom = 1; this.repo = null; this.data = {}; this.on = null;
-    // The tab bar draws this icon; Herdr only draws images from real folders, so it goes to data/.
-    cx.spawn(async () => {
-      const dir = `${appHome()}/data/projects/icons`;
-      await fs.mkdir(dir, { recursive: true });
-      await fs.writeFile(`${dir}/projects.svg`, ICON);
-    });
-    this.refresh(cx);
+    this.zoom = 1; this.repo = null; this.data = {}; this.on = null;    this.refresh(cx);
     cx.timer.every(REFRESH, (cx) => { if (!hidden()) this.refresh(cx); });
   }
 

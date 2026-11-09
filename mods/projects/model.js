@@ -123,10 +123,11 @@ export function gantt(items, spec, today) {
 export function months(min, max) {
   const out = [];
   const d = new Date(min * 86400000);
-  let y = d.getUTCFullYear(), m = d.getUTCMonth() + 1;
+  let y = d.getUTCFullYear(), m = d.getUTCMonth();
   for (;;) {
     const first = Math.floor(Date.UTC(y, m, 1) / 86400000);
     if (first > max) break;
+    if (first < min) { m++; if (m > 11) { m = 0; y++; } continue; }
     const dt = new Date(first * 86400000), mon = dt.getUTCMonth() + 1;
     out.push({ day: first, label: mon === 1 ? `${dt.getUTCFullYear()}年1月` : `${mon}月` });
     m++; if (m > 11) { m = 0; y++; }
