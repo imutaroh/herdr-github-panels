@@ -78,7 +78,9 @@ export const isoOf = (d) => new Date(d * 86400000).toISOString().slice(0, 10);
 // settings through the API, so: a start-ish and an end-ish DATE field by name,
 // a single DATE field as a point, else an Iteration field.
 export function dateSpec(fields) {
-  const dates = fields.filter((f) => f.dataType === "DATE").map((f) => f.name);
+  // A Date field called "Archive" is not a schedule: only schedule-like names count.
+  const SCHEDULE = /start|begin|end|target|due|finish|deadline|release|ship|date|開始|終了|期限|完了|予定|リリース/i;
+  const dates = fields.filter((f) => f.dataType === "DATE" && SCHEDULE.test(f.name)).map((f) => f.name);
   const start = dates.find((n) => /start|begin|開始/i.test(n));
   const end = dates.find((n) => n !== start && /end|target|due|finish|deadline|終了|期限|完了/i.test(n));
   if (start || end || dates.length >= 2) {
